@@ -26,7 +26,6 @@ app.get('/strategy/:handle', async (req, res) => {
     const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
     await page.setCookie(...cookies);
 
-    // Use realistic user-agent and viewport
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
@@ -35,26 +34,25 @@ app.get('/strategy/:handle', async (req, res) => {
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
 
-    const title = await page.title();
-    console.log(`[STRATEGY] Page title: ${title}`);
+    // Wait for tweets to load
+    await page.waitForSelector('article a[href*="/status/"]', { timeout: 60000 });
 
-    // Wait for tweets initially
-    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 9000 });
-
-    // Scroll once to ensure some tweets are loaded
+    // Scroll once to load a few more tweets
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // Extract 15 tweets
-    const tweets = await page.$$eval('article[data-testid="tweet"]', tweetNodes =>
-      tweetNodes.slice(0, 15).map(node => {
-        const textNode = node.querySelector('div[lang]');
-        return textNode ? textNode.innerText.trim() : null;
-      }).filter(Boolean)
-    );
+    // Extract tweet links (only first 20)
+    const tweetLinks = await page.$$eval('article a[href*="/status/"]', (links, handle) => {
+      const seen = new Set();
+      return links
+        .map(link => link.getAttribute('href'))
+        .filter(href => href && href.includes('/status/') && !seen.has(href) && seen.add(href))
+        .slice(0, 20)
+        .map(href => `https://x.com${href}`);
+    }, handle);
 
-    console.log(`[STRATEGY] Extracted ${tweets.length} tweets`);
-    res.json(tweets);
+    console.log(`[STRATEGY] Found ${tweetLinks.length} tweet links`);
+    res.json(tweetLinks);
 
   } catch (err) {
     console.error('[STRATEGY ERROR]', err);
