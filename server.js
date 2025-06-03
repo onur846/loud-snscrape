@@ -37,9 +37,29 @@ app.get('/strategy/:handle', async (req, res) => {
     // Wait for tweets to load
     await page.waitForSelector('article a[href*="/status/"]', { timeout: 60000 });
 
-    // Scroll once to load a few more tweets
-    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Scroll 7 times to load more tweets
+    for (let i = 0; i < 7; i++) {
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+      await new Promise(resolve => setTimeout(resolve, 2500));
+
+      // ✅ Extract clean, unique tweet links
+    const tweetLinks = await page.$$eval('article a[href*="/status/"]', (links) => {
+    const seen = new Set();
+    return links
+    .map(link => link.getAttribute('href'))
+    .filter(href => {
+      const match = href.match(/\/status\/\d+/); // match /status/123
+      if (!match) return false;
+      const base = match[0]; // e.g. /status/123
+      if (seen.has(base)) return false;
+      seen.add(base);
+      return true;
+    })
+    .map(base => `https://x.com${base}`);
+});
+
+console.log(`[STRATEGY] Extracted ${tweetLinks.length} unique tweet links`);
+res.json(tweetLinks);
 
     // Extract tweet links (only first 20)
     const tweetLinks = await page.$$eval('article a[href*="/status/"]', (links, handle) => {
