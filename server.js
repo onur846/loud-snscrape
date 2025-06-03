@@ -5,14 +5,12 @@ const puppeteer = require('puppeteer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Utility: returns an ISO timestamp 24 hours ago
 function twentyFourHoursAgoISO() {
   const d = new Date();
   d.setHours(d.getHours() - 24);
   return d.toISOString();
 }
 
-// /strategy/:handle → returns last 24h tweets (up to ~50)
 app.get('/strategy/:handle', async (req, res) => {
   const handle = req.params.handle;
   const cutoff = new Date(twentyFourHoursAgoISO());
@@ -20,72 +18,74 @@ app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
   try {
     browser = await puppeteer.launch({
-      headless: true,
+      headless: 'new', // opt in to new headless mode
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
 
-    // Visit the user's Twitter profile
     await page.goto(`https://twitter.com/${handle}`, {
       waitUntil: 'networkidle2',
       timeout: 60000,
     });
-    await page.waitForSelector('article div[data-testid="tweet"]', {
-      timeout: 60000,
-    });
+
+    // Wait for any <article> to appear (tweets, replies, etc.).
+    await page.waitForSelector('article', { timeout: 90000 });
 
     const tweets = [];
     let lastHeight = await page.evaluate('document.body.scrollHeight');
 
     while (true) {
-      // Scrape all visible tweets on screen
-      const newOnPage = await page.$$eval(
-        'article div[data-testid="tweet"]',
-        (nodes) =>
-          nodes.map((node) => {
-            // Tweet text
-            const contentNode = node.querySelector('div[lang]');
-            const content = contentNode ? contentNode.innerText : '';
+      // Scrape all visible <article> elements
+      const newOnPage = await page.$$eval('article', (nodes) =>
+        nodes.map((node) => {
+          // Tweet text is in a div with a lang attribute
+          const contentNode = node.querySelector('div[lang]');
+          const content = contentNode ? contentNode.innerText : '';
 
-            // Timestamp
-            const timeNode = node.querySelector('time');
-            const dateIso = timeNode ? timeNode.getAttribute('datetime') : null;
+          // Timestamp is in a <time> tag
+          const timeNode = node.querySelector('time');
+          const dateIso = timeNode ? timeNode.getAttribute('datetime') : null;
 
-            // URL
-            const url = timeNode ? timeNode.parentElement.getAttribute('href') : null;
+          // URL comes from the parent <a> of the <time> tag
+          const url =
+            timeNode && timeNode.parentElement
+              ? timeNode.parentElement.getAttribute('href')
+              : null;
 
-            // Hashtags & mentions via regex
-            const hashtags = content.match(/#\w+/g) || [];
-            const mentions = content.match(/@\w+/g) || [];
+          // Simple regex for hashtags and mentions
+          const hashtags = content.match(/#\w+/g) || [];
+          const mentions = content.match(/@\w+/g) || [];
 
-            // Detect media
-            const hasImage = !!node.querySelector('img[src*="twimg.com/media/"]');
-            const hasVideo = !!node.querySelector('video');
+          // Detect media by looking for image/video elements
+          const hasImage = !!node.querySelector('img[src*="twimg.com/media/"]');
+          const hasVideo = !!node.querySelector('video');
 
-            return { content, dateIso, url, hashtags, mentions, hasImage, hasVideo };
-          })
+          return { content, dateIso, url, hashtags, mentions, hasImage, hasVideo };
+        })
       );
 
-      // Deduplicate
+      // Deduplicate by URL
       newOnPage.forEach((t) => {
-        if (!tweets.find((x) => x.url === t.url)) tweets.push(t);
+        if (t.url && !tweets.find((x) => x.url === t.url)) {
+          tweets.push(t);
+        }
       });
 
-      // Stop if the oldest visible tweet is beyond 24h
+      // Stop if the oldest we have is older than 24h
       const oldest = tweets[tweets.length - 1];
       if (oldest && new Date(oldest.dateIso) < cutoff) break;
 
-      // Scroll down and wait for new tweets to load
+      // Scroll and wait for new content
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
       await page.waitForTimeout(2000);
 
       const newHeight = await page.evaluate('document.body.scrollHeight');
-      if (newHeight === lastHeight) break; // No more content
+      if (newHeight === lastHeight) break; // no more tweets
       lastHeight = newHeight;
     }
 
-    // Filter to last 24h and limit to 50
+    // Filter to last 24h and limit to 50 items
     const recentTweets = tweets
       .filter((t) => new Date(t.dateIso) >= cutoff)
       .slice(0, 50);
