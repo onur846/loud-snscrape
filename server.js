@@ -7,11 +7,10 @@ app.use(cors());
 
 const BASE_URL = 'https://x.com/';
 
-async function autoScroll(page, maxScrolls = 3) {
+async function autoScroll(page, maxScrolls = 5) {
   for (let i = 0; i < maxScrolls; i++) {
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    // Reduced wait time to 4 seconds for faster scrolling while allowing content load
-    await new Promise(resolve => setTimeout(resolve, 4000));
+    await new Promise(resolve => setTimeout(resolve, 4000)); // wait 4s between scrolls
   }
 }
 
@@ -26,9 +25,10 @@ app.get('/strategy/:handle', async (req, res) => {
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
+
     const page = await browser.newPage();
 
-    // Set user agent and viewport to mimic a real browser and avoid blocks
+    // Use realistic user-agent and viewport
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
@@ -36,13 +36,29 @@ app.get('/strategy/:handle', async (req, res) => {
     await page.setViewport({ width: 1280, height: 800 });
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
-    console.log(`[STRATEGY] Page title: ${await page.title()}`);
 
-    // Wait for tweet articles with updated selector
+    const title = await page.title();
+    console.log(`[STRATEGY] Page title: ${title}`);
+
+    // Wait for tweets initially
     await page.waitForSelector('article[data-testid="tweet"]', { timeout: 60000 });
 
-    await autoScroll(page, 3);
+    // Try to close login modal if it appears
+    try {
+      await page.waitForSelector('div[role="dialog"] [data-testid="sheetDialog"]', { timeout: 5000 });
+      await page.keyboard.press('Escape');
+      console.log('[STRATEGY] Closed login modal');
+    } catch (e) {
+      // Modal didn’t appear – that's fine
+    }
 
+    // Scroll the page to trigger lazy loading
+    await autoScroll(page, 5);
+
+    // Wait again after scrolling
+    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 10000 });
+
+    // Extract tweets
     const tweets = await page.$$eval('article[data-testid="tweet"]', tweetNodes =>
       tweetNodes.slice(0, 50).map(node => {
         const textNode = node.querySelector('div[lang]');
@@ -50,10 +66,9 @@ app.get('/strategy/:handle', async (req, res) => {
       }).filter(Boolean)
     );
 
-    // Debug screenshot (uncomment if needed)
-    // await page.screenshot({ path: 'debug.png', fullPage: true });
-
+    console.log(`[STRATEGY] Extracted ${tweets.length} tweets`);
     res.json(tweets);
+
   } catch (err) {
     console.error('[STRATEGY ERROR]', err);
     res.status(500).json({ error: err.toString() });
