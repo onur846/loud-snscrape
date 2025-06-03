@@ -1,0 +1,11 @@
+{
+  "name": "snscrape-strategy",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "bash start.sh"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
