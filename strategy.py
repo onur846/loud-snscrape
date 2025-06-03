@@ -1,3 +1,7 @@
+import ssl
+# ─── Disable SSL certificate verification ─────────────────────────────────────
+ssl._create_default_https_context = ssl._create_unverified_context
+
 import sys
 import json
 import snscrape.modules.twitter as sntwitter
