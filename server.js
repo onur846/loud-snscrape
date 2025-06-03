@@ -8,10 +8,9 @@ app.use(cors());
 
 const BASE_URL = 'https://x.com/';
 
-app.get('/strategy/:handle', async (req, res) => {
-  const handle = req.params.handle;
+async function scrapeTweetsWithinLast24Hours(handle) {
   const url = `${BASE_URL}${handle}`;
-  console.log(`[STRATEGY] Navigating to ${url}`);
+  console.log(`[SCRAPE] Navigating to ${url}`);
 
   let browser;
   try {
@@ -21,55 +20,78 @@ app.get('/strategy/:handle', async (req, res) => {
     });
 
     const page = await browser.newPage();
-    
-    // Load cookies from cookies.json
-    const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
-    await page.setCookie(...cookies);
-
-    // Use realistic user-agent and viewport
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-      '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
-    );
     await page.setViewport({ width: 1280, height: 800 });
-
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
 
-    const title = await page.title();
-    console.log(`[STRATEGY] Page title: ${title}`);
-
-    // Wait for tweets initially
-    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 60000 });
-
-    // Try to close login modal if it appears
-    try {
-      await page.waitForSelector('div[role="dialog"] [data-testid="sheetDialog"]', { timeout: 5000 });
-      await page.keyboard.press('Escape');
-      console.log('[STRATEGY] Closed login modal');
-    } catch (e) {
-      // Modal didn’t appear – that's fine
+    // Function to scroll page to bottom
+    async function scrollPage() {
+      await page.evaluate(async () => {
+        await new Promise((resolve, reject) => {
+          let totalHeight = 0;
+          const distance = 100;
+          const scrollInterval = setInterval(() => {
+            const scrollHeight = document.body.scrollHeight;
+            window.scrollBy(0, distance);
+            totalHeight += distance;
+            if (totalHeight >= scrollHeight) {
+              clearInterval(scrollInterval);
+              resolve();
+            }
+          }, 100); // Adjust scroll speed as needed
+        });
+      });
     }
 
-    // Scroll the page to trigger lazy loading (if needed)
-    // await autoScroll(page, 5);
+    // Scroll down the page multiple times
+    let scrollAttempts = 0;
+    while (scrollAttempts < 10) { // Adjust number of scrolls based on page length
+      await scrollPage();
+      scrollAttempts++;
+    }
 
-    // Extract tweets
-    const tweets = await page.$$eval('article[data-testid="tweet"]', tweetNodes =>
-      tweetNodes.slice(0, 20).map(node => {
+    // Wait for tweets to load
+    await page.waitForSelector('article div[data-testid="tweet"]', { timeout: 60000 });
+
+    // Extract all tweets
+    const tweets = await page.$$eval('article div[data-testid="tweet"]', tweetNodes =>
+      tweetNodes.map(node => {
         const textNode = node.querySelector('div[lang]');
         return textNode ? textNode.innerText.trim() : null;
       }).filter(Boolean)
     );
 
-    console.log(`[STRATEGY] Extracted ${tweets.length} tweets`);
-    res.json(tweets);
+    console.log(`[SCRAPE] Extracted ${tweets.length} tweets`);
+
+    // Filter tweets by timestamp (last 24 hours)
+    const last24HoursTweets = filterTweetsByTimestamp(tweets);
+
+    return last24HoursTweets;
 
   } catch (err) {
-    console.error('[STRATEGY ERROR]', err);
-    res.status(500).json({ error: err.toString() });
+    console.error('[SCRAPE ERROR]', err);
+    return [];
   } finally {
     if (browser) await browser.close();
   }
+}
+
+// Helper function to filter tweets by timestamp (last 24 hours)
+function filterTweetsByTimestamp(tweets) {
+  // Assuming tweets have timestamps accessible in their structure
+  // Replace with actual logic to filter tweets from last 24 hours
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now - 24 * 60 * 60 * 1000);
+
+  return tweets.filter(tweet => {
+    // Implement your logic here to check tweet timestamp
+    // Example: return tweet.timestamp >= twentyFourHoursAgo;
+    return true; // Placeholder - implement actual logic
+  });
+}
+
+app.get('/', async (req, res) => {
+  const tweets = await scrapeTweetsWithinLast24Hours('0x_ultra'); // Replace '0x_ultra' with any Twitter handle you want to scrape
+  res.json(tweets);
 });
 
 const PORT = process.env.PORT || 10000;
