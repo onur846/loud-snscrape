@@ -40,7 +40,7 @@ RUN npm install --production
 COPY . .
 
 # ─── Expose the port your server will run on ────────────────────────────────────
-EXPOSE 3000
+EXPOSE 10000
 
 # ─── Default command to run your server ───────────────────────────────────────────
 CMD ["node", "server.js"]
