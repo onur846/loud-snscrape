@@ -3,10 +3,10 @@ services:
     name: loud-snscrape
     env: node
     plan: free
-    buildCommand: "bash build.sh"
+    buildCommand: "bash build.sh && npm install"
     startCommand: "bash start.sh"
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PORT
-        value: "10000"  # or your custom port if needed
+        value: "10000"
