@@ -1,18 +1,12 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 
 const BASE_URL = 'https://x.com/';
-
-async function autoScroll(page, maxScrolls = 5) {
-  for (let i = 0; i < maxScrolls; i++) {
-    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    await new Promise(resolve => setTimeout(resolve, 4000)); // wait 4s between scrolls
-  }
-}
 
 app.get('/strategy/:handle', async (req, res) => {
   const handle = req.params.handle;
@@ -27,6 +21,10 @@ app.get('/strategy/:handle', async (req, res) => {
     });
 
     const page = await browser.newPage();
+    
+    // Load cookies from cookies.json
+    const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
+    await page.setCookie(...cookies);
 
     // Use realistic user-agent and viewport
     await page.setUserAgent(
@@ -52,19 +50,12 @@ app.get('/strategy/:handle', async (req, res) => {
       // Modal didn’t appear – that's fine
     }
 
-    // Scroll the page to trigger lazy loading
-    await autoScroll(page, 5);
-
-    // Wait again after scrolling
-    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 10000 });
-
-    // 👇 DEBUG LINE ADDED HERE
-    const html = await page.content();
-    console.log('[DEBUG] Page content:', html);
+    // Scroll the page to trigger lazy loading (if needed)
+    // await autoScroll(page, 5);
 
     // Extract tweets
     const tweets = await page.$$eval('article[data-testid="tweet"]', tweetNodes =>
-      tweetNodes.slice(0, 50).map(node => {
+      tweetNodes.slice(0, 20).map(node => {
         const textNode = node.querySelector('div[lang]');
         return textNode ? textNode.innerText.trim() : null;
       }).filter(Boolean)
