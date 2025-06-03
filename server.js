@@ -8,97 +8,84 @@ app.use(cors());
 
 const BASE_URL = 'https://x.com/';
 
-async function scrapeTweetsWithinLast24Hours(handle) {
+function isWithinLast24Hours(text) {
+  const now = Date.now();
+
+  const patterns = [
+    { regex: /(\d+)(?:s|sn)$/, multiplier: 1000 },
+    { regex: /(\d+)(?:m|dk)$/, multiplier: 60 * 1000 },
+    { regex: /(\d+)(?:h|sa)$/, multiplier: 60 * 60 * 1000 },
+    { regex: /(\d+)(?:d|g)$/, multiplier: 24 * 60 * 60 * 1000 }
+  ];
+
+  for (const { regex, multiplier } of patterns) {
+    const match = text.match(regex);
+    if (match) {
+      const timestamp = now - parseInt(match[1]) * multiplier;
+      return timestamp >= now - 24 * 60 * 60 * 1000;
+    }
+  }
+
+  // Handle "1h ago", "now", or unknown formats by including them just in case
+  return /now|h|s|m|dk|sa/.test(text);
+}
+
+app.get('/strategy/:handle', async (req, res) => {
+  const handle = req.params.handle;
   const url = `${BASE_URL}${handle}`;
-  console.log(`[SCRAPE] Navigating to ${url}`);
+  console.log(`[STRATEGY] Navigating to ${url}`);
 
   let browser;
   try {
     browser = await puppeteer.launch({
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      timeout: 30000, // Increased timeout to 30 seconds
+      timeout: 60000,
     });
 
     const page = await browser.newPage();
 
-    // Load cookies from cookies.json
     const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
     await page.setCookie(...cookies);
 
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+    );
     await page.setViewport({ width: 1280, height: 800 });
+
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
 
-    // Function to scroll page to bottom
-    async function scrollPage() {
-      await page.evaluate(async () => {
-        await new Promise((resolve, reject) => {
-          let totalHeight = 0;
-          const distance = 100;
-          const scrollInterval = setInterval(() => {
-            const scrollHeight = document.body.scrollHeight;
-            window.scrollBy(0, distance);
-            totalHeight += distance;
-            if (totalHeight >= scrollHeight) {
-              clearInterval(scrollInterval);
-              resolve();
-            }
-          }, 100); // Adjust scroll speed as needed
-        });
-      });
+    // Scroll to load more tweets
+    const scrollTimes = 8;
+    for (let i = 0; i < scrollTimes; i++) {
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    // Scroll down the page multiple times
-    let scrollAttempts = 0;
-    while (scrollAttempts < 10) { // Adjust number of scrolls based on page length
-      await scrollPage();
-      scrollAttempts++;
-    }
-
-    // Wait for tweets to load
     await page.waitForSelector('article div[data-testid="tweet"]', { timeout: 60000 });
 
-    // Extract all tweets
-    const tweets = await page.$$eval('article div[data-testid="tweet"]', tweetNodes =>
-      tweetNodes.map(node => {
-        const textNode = node.querySelector('div[lang]');
-        return textNode ? textNode.innerText.trim() : null;
+    // Extract tweets + timestamps
+    const tweets = await page.$$eval('article[data-testid="tweet"]', nodes =>
+      nodes.map(node => {
+        const content = node.querySelector('div[lang]')?.innerText?.trim();
+        const timeText = node.querySelector('time')?.getAttribute('datetime') || '';
+        const relativeText = node.querySelector('time')?.parentElement?.innerText || '';
+        return content && relativeText ? { content, time: relativeText.trim() } : null;
       }).filter(Boolean)
     );
 
-    console.log(`[SCRAPE] Extracted ${tweets.length} tweets`);
+    const recentTweets = tweets.filter(t => isWithinLast24Hours(t.time)).map(t => t.content);
 
-    // Filter tweets by timestamp (last 24 hours)
-    const last24HoursTweets = filterTweetsByTimestamp(tweets);
-
-    return last24HoursTweets;
+    console.log(`[STRATEGY] Filtered ${recentTweets.length} tweets from last 24h`);
+    res.json(recentTweets);
 
   } catch (err) {
-    console.error('[SCRAPE ERROR]', err);
-    return [];
+    console.error('[STRATEGY ERROR]', err);
+    res.status(500).json({ error: err.toString() });
   } finally {
     if (browser) await browser.close();
   }
-}
-
-// Helper function to filter tweets by timestamp (last 24 hours)
-function filterTweetsByTimestamp(tweets) {
-  // Assuming tweets have timestamps accessible in their structure
-  // Replace with actual logic to filter tweets from last 24 hours
-  const now = new Date();
-  const twentyFourHoursAgo = new Date(now - 24 * 60 * 60 * 1000);
-
-  return tweets.filter(tweet => {
-    // Implement your logic here to check tweet timestamp
-    // Example: return tweet.timestamp >= twentyFourHoursAgo;
-    return true; // Placeholder - implement actual logic
-  });
-}
-
-app.get('/strategy/:handle', async (req, res) => {
-  const handle = req.params.handle;
-  const tweets = await scrapeTweetsWithinLast24Hours(handle);
-  res.json(tweets);
 });
 
 const PORT = process.env.PORT || 10000;
