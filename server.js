@@ -94,8 +94,9 @@ function filterTweetsByTimestamp(tweets) {
   });
 }
 
-app.get('/', async (req, res) => {
-  const tweets = await scrapeTweetsWithinLast24Hours('0x_ultra'); // Replace '0x_ultra' with any Twitter handle you want to scrape
+app.get('/tweets/:handle', async (req, res) => {
+  const handle = req.params.handle;
+  const tweets = await scrapeTweetsWithinLast24Hours(handle);
   res.json(tweets);
 });
 
