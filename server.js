@@ -17,6 +17,7 @@ async function scrapeTweetsWithinLast24Hours(handle) {
     browser = await puppeteer.launch({
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      timeout: 30000, // Increased timeout to 30 seconds
     });
 
     const page = await browser.newPage();
@@ -94,7 +95,7 @@ function filterTweetsByTimestamp(tweets) {
   });
 }
 
-app.get('/tweets/:handle', async (req, res) => {
+app.get('/strategy/:handle', async (req, res) => {
   const handle = req.params.handle;
   const tweets = await scrapeTweetsWithinLast24Hours(handle);
   res.json(tweets);
