@@ -63,7 +63,7 @@ app.get('/strategy/:handle', async (req, res) => {
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 60000 });
+    await page.waitForSelector('div[role="dialog"] [data-testid="sheetDialog"]', { timeout: 60000 }); 
 
     // Extract tweets + timestamps
     const tweets = await page.$$eval('article[data-testid="tweet"]', nodes =>
