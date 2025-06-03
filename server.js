@@ -39,11 +39,11 @@ app.get('/strategy/:handle', async (req, res) => {
     console.log(`[STRATEGY] Page title: ${title}`);
 
     // Wait for tweets initially
-    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 60000 });
+    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 9000 });
 
     // Scroll once to ensure some tweets are loaded
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    await new Promise(resolve => setTimeout(resolve, 20000));
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     // Extract 15 tweets
     const tweets = await page.$$eval('article[data-testid="tweet"]', tweetNodes =>
