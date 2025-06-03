@@ -58,6 +58,10 @@ app.get('/strategy/:handle', async (req, res) => {
     // Wait again after scrolling
     await page.waitForSelector('article[data-testid="tweet"]', { timeout: 10000 });
 
+    // 👇 DEBUG LINE ADDED HERE
+    const html = await page.content();
+    console.log('[DEBUG] Page content:', html);
+
     // Extract tweets
     const tweets = await page.$$eval('article[data-testid="tweet"]', tweetNodes =>
       tweetNodes.slice(0, 50).map(node => {
