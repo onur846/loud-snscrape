@@ -41,15 +41,6 @@ app.get('/strategy/:handle', async (req, res) => {
     // Wait for tweets initially
     await page.waitForSelector('article[data-testid="tweet"]', { timeout: 60000 });
 
-    // Try to close login modal if it appears
-    try {
-      await page.waitForSelector('div[role="dialog"] [data-testid="sheetDialog"]', { timeout: 5000 });
-      await page.keyboard.press('Escape');
-      console.log('[STRATEGY] Closed login modal');
-    } catch (e) {
-      // Modal didn’t appear – that's fine
-    }
-
     // Scroll once to ensure some tweets are loaded
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
     await new Promise(resolve => setTimeout(resolve, 20000));
