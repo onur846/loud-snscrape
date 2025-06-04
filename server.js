@@ -95,7 +95,7 @@ app.get('/strategy/:handle', async (req, res) => {
     const maxAttempts = 30;
     let attempts = 0;
 
-    while (tweetLinks.length < 30 && attempts < maxAttempts) {
+    while (tweetLinks.length < 50 && attempts < maxAttempts) {
       await page.evaluate(() => {
         window.scrollBy(0, window.innerHeight * 2);
       });
@@ -109,7 +109,7 @@ app.get('/strategy/:handle', async (req, res) => {
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    tweetLinks = tweetLinks.slice(0, 30);
+    tweetLinks = tweetLinks.slice(0, 50);
     console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
 
     res.json(tweetLinks);
