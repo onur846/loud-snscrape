@@ -28,10 +28,11 @@ app.get('/strategy/:handle', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // ✅ Load cookies from local file before navigating
+    // ✅ Load cookies before navigating
     const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
     await page.setCookie(...cookies);
 
+    // ✅ Realistic browser fingerprint
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
@@ -41,7 +42,6 @@ app.get('/strategy/:handle', async (req, res) => {
     page.on('request', (request) => {
       const resourceType = request.resourceType();
       const blockedResources = ['image', 'stylesheet', 'font'];
-
       if (blockedResources.includes(resourceType)) {
         request.abort();
       } else {
@@ -49,11 +49,17 @@ app.get('/strategy/:handle', async (req, res) => {
       }
     });
 
-    // ✅ Go to profile with cookies
-    await page.goto(`https://x.com/${req.params.handle}`, {
-      waitUntil: ['networkidle0', 'domcontentloaded'],
-      timeout: 180000
+    const targetURL = `https://x.com/${req.params.handle}`;
+    await page.goto(targetURL, {
+      waitUntil: ['domcontentloaded'],
+      timeout: 90000 // Shorter timeout
     });
+
+    // ❌ Redirect detection (suspended / login)
+    const currentURL = page.url();
+    if (currentURL.includes('/login') || currentURL.includes('/account/suspended')) {
+      throw new Error(`Blocked or not logged in. Landed on: ${currentURL}`);
+    }
 
     // ✅ Extract only tweets from last 24 hours
     const extractTweetLinks = async () => {
@@ -77,15 +83,14 @@ app.get('/strategy/:handle', async (req, res) => {
           const anchor = timeEl.closest('a[href*="/status/"]');
           if (!anchor) continue;
 
-          const href = anchor.href;
-          links.add(href);
+          links.add(anchor.href);
         }
 
         return Array.from(links);
       }, now);
     };
 
-    // ⏬ Scroll & collect strategy
+    // 🔁 Scroll and load strategy
     let tweetLinks = [];
     const maxAttempts = 10;
     let attempts = 0;
@@ -105,8 +110,8 @@ app.get('/strategy/:handle', async (req, res) => {
     }
 
     tweetLinks = tweetLinks.slice(0, 30);
-
     console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
+
     res.json(tweetLinks);
 
   } catch (err) {
