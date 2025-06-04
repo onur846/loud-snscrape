@@ -1,5 +1,5 @@
 const express = require('express');
-const puppeteer = require('puppeteer-extra');
+const puppeteer = require('puppeteer');
 const cors = require('cors');
 const fs = require('fs');
 
