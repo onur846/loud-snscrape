@@ -60,45 +60,47 @@ app.get('/strategy/:handle', async (req, res) => {
     }
 
     const extractTweetData = async () => {
-      const now = Date.now();
-      const articles = Array.from(document.querySelectorAll('article'));
-      const tweets = [];
+  const now = Date.now();
+  return await page.evaluate((now) => {
+    const articles = Array.from(document.querySelectorAll('article'));
+    const tweets = [];
 
-      for (const article of articles) {
-        const timeEl = article.querySelector('time');
-        if (!timeEl) continue;
+    for (const article of articles) {
+      const timeEl = article.querySelector('time');
+      if (!timeEl) continue;
 
-        const datetime = timeEl.getAttribute('datetime');
-        if (!datetime) continue;
+      const datetime = timeEl.getAttribute('datetime');
+      if (!datetime) continue;
 
-        const tweetTime = new Date(datetime).getTime();
-        const diffHours = (now - tweetTime) / (1000 * 60 * 60);
-        if (diffHours > 24) continue;
+      const tweetTime = new Date(datetime).getTime();
+      const diffHours = (now - tweetTime) / (1000 * 60 * 60);
+      if (diffHours > 24) continue;
 
-        const linkEl = timeEl.closest('a[href*="/status/"]');
-        if (!linkEl) continue;
+      const linkEl = timeEl.closest('a[href*="/status/"]');
+      if (!linkEl) continue;
 
-        const tweetText = article.innerText.toLowerCase();
+      const tweetText = article.innerText.toLowerCase();
 
-        const hashtags = Array.from(article.querySelectorAll('a[href*="/hashtag/"]'))
-          .map(a => a.innerText.trim())
-          .filter(t => t.startsWith('#'));
+      const hashtags = Array.from(article.querySelectorAll('a[href*="/hashtag/"]'))
+        .map(a => a.innerText.trim())
+        .filter(t => t.startsWith('#'));
 
-        const mentions = Array.from(article.querySelectorAll('a[href^="/"]'))
-          .map(a => a.innerText.trim())
-          .filter(m => m.startsWith('@'));
+      const mentions = Array.from(article.querySelectorAll('a[href^="/"]'))
+        .map(a => a.innerText.trim())
+        .filter(m => m.startsWith('@'));
 
-        tweets.push({
-          link: linkEl.href,
-          timestamp: datetime,
-          containsLoudio: tweetText.includes('loudio'),
-          hashtags,
-          mentions
-        });
-      }
+      tweets.push({
+        link: linkEl.href,
+        timestamp: datetime,
+        containsLoudio: tweetText.includes('loudio'),
+        hashtags,
+        mentions
+      });
+    }
 
-      return tweets;
-    };
+    return tweets;
+  }, now);
+};
 
     // Scroll and load more tweets
     let allTweets = [];
