@@ -1,7 +1,8 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
 const cors = require('cors');
 const fs = require('fs');
+
 
 const app = express();
 app.use(cors());
@@ -17,67 +18,96 @@ app.get('/strategy/:handle', async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--proxy-server="direct://"',
+        '--proxy-bypass-list=*'
+      ],
+      defaultViewport: { width: 1920, height: 1080 }
     });
 
     const page = await browser.newPage();
 
-    // Load cookies from cookies.json
-    const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
-    await page.setCookie(...cookies);
-
-    // Use realistic user-agent and viewport
+    // Advanced page setup
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-      '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      '(KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
     );
-    await page.setViewport({ width: 1280, height: 800 });
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
-
-    const title = await page.title();
-    console.log(`[STRATEGY] Page title: ${title}`);
-
-    // Wait for tweets to load
-    await page.waitForSelector('article a[href*="/status/"]', { timeout: 60000 });
-
-    // Try to close login modal if it appears
+    // Load cookies if available
     try {
-      await page.waitForSelector('div[role="dialog"] [data-testid="sheetDialog"]', { timeout: 5000 });
-      await page.keyboard.press('Escape');
-      console.log('[STRATEGY] Closed login modal');
-    } catch (e) {
-      // Modal didn’t appear – that's fine
+      const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
+      await page.setCookie(...cookies);
+    } catch (cookieError) {
+      console.log('[STRATEGY] No cookies found or error loading cookies');
     }
 
-    // ✅ Scroll 15 times to load more tweets
-    for (let i = 0; i < 15; i++) {
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await new Promise(resolve => setTimeout(resolve, 2500));
-    }
+    // Enhanced navigation with multiple strategies
+    await page.goto(url, { 
+      waitUntil: ['networkidle0', 'domcontentloaded'], 
+      timeout: 120000 
+    });
 
-    // ✅ Extract only clean unique tweet links
-    const tweetLinks = await page.$$eval('article a[href*="/status/"]', (links) => {
-      const seen = new Set();
+    // Advanced scroll and load strategy
+    await page.evaluate(async () => {
+      await new Promise((resolve) => {
+        let totalHeight = 0;
+        const distance = 1000;
+        const timer = setInterval(() => {
+          const scrollHeight = document.body.scrollHeight;
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+
+          if(totalHeight >= scrollHeight * 3){
+            clearInterval(timer);
+            resolve();
+          }
+        }, 500);
+      });
+    });
+
+    // Wait for tweets with increased timeout and multiple selectors
+    await page.waitForFunction(() => {
+      const tweets = document.querySelectorAll('article a[href*="/status/"]');
+      return tweets.length > 10;
+    }, { timeout: 90000 });
+
+    // Enhanced link extraction with more robust filtering
+    const tweetLinks = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('article a[href*="/status/"]'));
+      const uniqueLinks = new Set();
+
       return links
-        .map(link => link.getAttribute('href'))
+        .map(link => link.href)
         .filter(href => {
-          const match = href.match(/\/status\/\d+/);
-          if (!match) return false;
-          const base = match[0];
-          if (seen.has(base)) return false;
-          seen.add(base);
+          const statusMatch = href.match(/\/status\/(\d+)/);
+          if (!statusMatch) return false;
+          
+          const fullLink = `https://x.com${statusMatch[0]}`;
+          if (uniqueLinks.has(fullLink)) return false;
+          
+          uniqueLinks.add(fullLink);
           return true;
         })
-        .map(base => `https://x.com${base}`);
+        .slice(0, 50); // Limit to 50 links max
     });
 
     console.log(`[STRATEGY] Extracted ${tweetLinks.length} unique tweet links`);
+    
+    // Optional: Add delay before closing browser to ensure all data is processed
+    await page.waitForTimeout(2000);
+
     res.json(tweetLinks);
 
   } catch (err) {
     console.error('[STRATEGY ERROR]', err);
-    res.status(500).json({ error: err.toString() });
+    res.status(500).json({ 
+      error: err.toString(),
+      message: 'Failed to scrape tweets' 
+    });
   } finally {
     if (browser) await browser.close();
   }
