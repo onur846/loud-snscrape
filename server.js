@@ -53,15 +53,41 @@ app.get('/strategy/:handle', async (req, res) => {
     });
 
     const extractRecentTweetLinks = async () => {
-      return await page.evaluate(() => {
-        const selectors = [
-          'article a[href*="/status/"]',
-          'div[data-testid="tweet"] a[href*="/status/"]',
-          'div[role="article"] a[href*="/status/"]'
-        ];
-        const links = selectors.flatMap(selector =>
-          Array.from(document.querySelectorAll(selector))
-        );
+  return await page.evaluate(() => {
+    const tweets = Array.from(document.querySelectorAll('article'));
+
+    const validLinks = new Set();
+
+    for (const tweet of tweets) {
+      const timeNode = tweet.querySelector('time');
+      if (!timeNode) continue;
+
+      const timeText = timeNode.parentElement?.innerText?.trim() || '';
+
+      // Check if it ends with 'm' (minutes) or 'h' (hours up to 23h)
+      const match = timeText.match(/^(\d+)([mh])$/);
+      if (!match) continue;
+
+      const [_, value, unit] = match;
+      const num = parseInt(value);
+      if (
+        (unit === 'm' && num >= 1 && num <= 59) ||
+        (unit === 'h' && num >= 1 && num <= 23)
+      ) {
+        const anchor = tweet.querySelector('a[href*="/status/"]');
+        if (anchor) {
+          const href = anchor.href;
+          if (!validLinks.has(href)) {
+            validLinks.add(href);
+          }
+        }
+      }
+    }
+
+    return Array.from(validLinks);
+  });
+};
+
 
         const uniqueLinks = new Set();
 
