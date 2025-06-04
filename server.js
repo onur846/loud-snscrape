@@ -92,7 +92,7 @@ app.get('/strategy/:handle', async (req, res) => {
 
     // 🔁 Scroll and load strategy
     let tweetLinks = [];
-    const maxAttempts = 10;
+    const maxAttempts = 30;
     let attempts = 0;
 
     while (tweetLinks.length < 30 && attempts < maxAttempts) {
