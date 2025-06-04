@@ -11,6 +11,21 @@ app.use(cors());
 // Utility function for delay
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Function to check if a tweet is from the last 24 hours
+function isWithinLast24Hours(timeString) {
+  try {
+    // Parse various time formats
+    const parsedTime = new Date(timeString);
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    
+    return parsedTime > twentyFourHoursAgo;
+  } catch (error) {
+    console.error('Time parsing error:', error);
+    return false;
+  }
+}
+
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
   try {
@@ -47,24 +62,47 @@ app.get('/strategy/:handle', async (req, res) => {
       }
     });
 
-    // Enhanced navigation
+    // Enhanced navigation with 24-hour filter
     await page.goto(`https://x.com/${req.params.handle}`, {
       waitUntil: ['networkidle0', 'domcontentloaded'],
       timeout: 180000
     });
 
     // Advanced dynamic scrolling to load more content
-    const extractTweetLinks = async () => {
+    const extractRecentTweetLinks = async () => {
       return await page.evaluate(() => {
         // Scroll to bottom of the page
         window.scrollTo(0, document.body.scrollHeight);
 
-        const links = Array.from(document.querySelectorAll('article a[href*="/status/"]'));
+        // Select all tweet articles with timestamp
+        const tweetElements = document.querySelectorAll('article[data-testid="tweet"]');
         const uniqueLinks = new Set();
 
-        return links
-          .map(link => link.href)
+        // Process each tweet
+        const recentTweets = Array.from(tweetElements).filter(tweet => {
+          // Try to find timestamp element
+          const timeElement = tweet.querySelector('time');
+          if (!timeElement) return false;
+
+          // Get datetime attribute
+          const datetime = timeElement.getAttribute('datetime');
+          if (!datetime) return false;
+
+          // Check if tweet is within last 24 hours
+          const tweetTime = new Date(datetime);
+          const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
+          
+          return tweetTime > twentyFourHoursAgo;
+        });
+
+        // Extract links from recent tweets
+        return recentTweets
+          .map(tweet => {
+            const link = tweet.querySelector('a[href*="/status/"]');
+            return link ? link.href : null;
+          })
           .filter(href => {
+            if (!href) return false;
             const statusMatch = href.match(/\/status\/(\d+)/);
             if (!statusMatch) return false;
             
@@ -89,23 +127,23 @@ app.get('/strategy/:handle', async (req, res) => {
         window.scrollBy(0, window.innerHeight * 2);
       });
 
-      // Replace waitForTimeout with delay function
+      // Wait for content to load
       await delay(2000);
 
-      // Extract links
-      const currentLinks = await extractTweetLinks();
+      // Extract recent links
+      const currentLinks = await extractRecentTweetLinks();
       
       // Merge and deduplicate links
       tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
 
       attempts++;
-      console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
+      console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} recent links`);
     }
 
     // Trim to exactly 30 links if possible
     tweetLinks = tweetLinks.slice(0, 30);
 
-    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
+    console.log(`Final extraction: ${tweetLinks.length} unique recent tweet links`);
 
     res.json(tweetLinks);
 
