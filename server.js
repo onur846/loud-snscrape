@@ -98,7 +98,7 @@ app.get('/strategy/:handle', async (req, res) => {
       });
 
       // Replace waitForTimeout with delay function
-      await delay(2000);
+      await delay(5000);
 
       // Extract links
       const currentLinks = await extractTweetLinks();
