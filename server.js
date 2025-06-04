@@ -28,11 +28,10 @@ app.get('/strategy/:handle', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // ✅ Load cookies before navigating
+    // Load cookies
     const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
     await page.setCookie(...cookies);
 
-    // ✅ Realistic browser fingerprint
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
@@ -52,70 +51,83 @@ app.get('/strategy/:handle', async (req, res) => {
     const targetURL = `https://x.com/${req.params.handle}`;
     await page.goto(targetURL, {
       waitUntil: ['domcontentloaded'],
-      timeout: 90000 // Shorter timeout
+      timeout: 90000
     });
 
-    // ❌ Redirect detection (suspended / login)
     const currentURL = page.url();
     if (currentURL.includes('/login') || currentURL.includes('/account/suspended')) {
       throw new Error(`Blocked or not logged in. Landed on: ${currentURL}`);
     }
 
-    // ✅ Extract only tweets from last 24 hours
-    const extractTweetLinks = async () => {
+    const extractTweetData = async () => {
       const now = Date.now();
+      const articles = Array.from(document.querySelectorAll('article'));
+      const tweets = [];
 
-      return await page.evaluate((now) => {
-        const articles = Array.from(document.querySelectorAll('article'));
-        const links = new Set();
+      for (const article of articles) {
+        const timeEl = article.querySelector('time');
+        if (!timeEl) continue;
 
-        for (const article of articles) {
-          const timeEl = article.querySelector('time');
-          if (!timeEl) continue;
+        const datetime = timeEl.getAttribute('datetime');
+        if (!datetime) continue;
 
-          const datetime = timeEl.getAttribute('datetime');
-          if (!datetime) continue;
+        const tweetTime = new Date(datetime).getTime();
+        const diffHours = (now - tweetTime) / (1000 * 60 * 60);
+        if (diffHours > 24) continue;
 
-          const tweetTime = new Date(datetime).getTime();
-          const diffHours = (now - tweetTime) / (1000 * 60 * 60);
-          if (diffHours > 24) continue;
+        const linkEl = timeEl.closest('a[href*="/status/"]');
+        if (!linkEl) continue;
 
-          const anchor = timeEl.closest('a[href*="/status/"]');
-          if (!anchor) continue;
+        const tweetText = article.innerText.toLowerCase();
 
-          links.add(anchor.href);
-        }
+        const hashtags = Array.from(article.querySelectorAll('a[href*="/hashtag/"]'))
+          .map(a => a.innerText.trim())
+          .filter(t => t.startsWith('#'));
 
-        return Array.from(links);
-      }, now);
+        const mentions = Array.from(article.querySelectorAll('a[href^="/"]'))
+          .map(a => a.innerText.trim())
+          .filter(m => m.startsWith('@'));
+
+        tweets.push({
+          link: linkEl.href,
+          timestamp: datetime,
+          containsLoudio: tweetText.includes('loudio'),
+          hashtags,
+          mentions
+        });
+      }
+
+      return tweets;
     };
 
-    // 🔁 Scroll and load strategy
-    let tweetLinks = [];
+    // Scroll and load more tweets
+    let allTweets = [];
     const maxAttempts = 20;
     let attempts = 0;
 
-    while (tweetLinks.length < 40 && attempts < maxAttempts) {
+    while (allTweets.length < 40 && attempts < maxAttempts) {
       await page.evaluate(() => {
         window.scrollBy(0, window.innerHeight * 2);
       });
-
       await delay(2000);
 
-      const currentLinks = await extractTweetLinks();
-      tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
+      const currentTweets = await extractTweetData();
+      const unique = new Map();
+      [...allTweets, ...currentTweets].forEach(tweet => {
+        unique.set(tweet.link, tweet);
+      });
 
+      allTweets = Array.from(unique.values());
       attempts++;
-      console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
+      console.log(`Attempt ${attempts}: ${allTweets.length} tweets`);
     }
 
-    tweetLinks = tweetLinks.slice(0, 40);
-    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
-
-    res.json(tweetLinks);
+    const finalTweets = allTweets.slice(0, 40);
+    console.log(`Final extracted tweets: ${finalTweets.length}`);
+    res.json(finalTweets);
 
   } catch (err) {
-    console.error('Detailed Scraping Error:', err);
+    console.error('Scraping Error:', err);
     res.status(500).json({
       error: 'Scraping Failed',
       message: err.toString(),
