@@ -55,28 +55,36 @@ app.get('/strategy/:handle', async (req, res) => {
 
     // Advanced dynamic scrolling to load more content
     const extractTweetLinks = async () => {
-      return await page.evaluate(() => {
-        // Scroll to bottom of the page
-        window.scrollTo(0, document.body.scrollHeight);
+     const now = Date.now();
 
-        const links = Array.from(document.querySelectorAll('article a[href*="/status/"]'));
-        const uniqueLinks = new Set();
+    return await page.evaluate((now) => {
+     const articles = Array.from(document.querySelectorAll('article'));
+     const links = new Set();
 
-        return links
-          .map(link => link.href)
-          .filter(href => {
-            const statusMatch = href.match(/\/status\/(\d+)/);
-            if (!statusMatch) return false;
-            
-            const fullLink = `https://x.com${statusMatch[0]}`;
-            if (uniqueLinks.has(fullLink)) return false;
-            
-            uniqueLinks.add(fullLink);
-            return true;
-          })
-          .slice(0, 50); // Increased link extraction limit
-      });
-    };
+    for (const article of articles) {
+      const timeEl = article.querySelector('time');
+      if (!timeEl) continue;
+
+      const datetime = timeEl.getAttribute('datetime');
+      if (!datetime) continue;
+
+      const tweetTime = new Date(datetime).getTime();
+      const diffHours = (now - tweetTime) / (1000 * 60 * 60);
+
+      if (diffHours > 24) continue; // skip old tweets
+
+      const anchor = timeEl.closest('a[href*="/status/"]');
+      if (!anchor) continue;
+
+      const href = anchor.href;
+      if (!links.has(href)) {
+        links.add(href);
+      }
+    }
+
+    return Array.from(links);
+  }, now);
+};
 
     // Multiple scroll and load strategy
     let tweetLinks = [];
