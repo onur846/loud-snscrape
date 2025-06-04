@@ -105,4 +105,36 @@ app.get('/strategy/:handle', async (req, res) => {
       .filter(link => link.includes('/status/'))
       .slice(0, 30); // ✅ final trim: max 30 tweets
 
-    console.log(`Final extra
+    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
+
+    if (tweetLinks.length === 0) {
+      console.warn('No tweet links found. Attempting alternative extraction.');
+
+      const fallbackLinks = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a'))
+          .filter(a => a.href.includes('/status/'));
+        return links.map(a => a.href).slice(0, 30);
+      });
+
+      tweetLinks = fallbackLinks;
+    }
+
+    res.json(tweetLinks);
+
+  } catch (err) {
+    console.error('Detailed Scraping Error:', err);
+    res.status(500).json({
+      error: 'Scraping Failed',
+      message: err.toString(),
+      details: err.message,
+      stack: err.stack
+    });
+  } finally {
+    if (browser) await browser.close();
+  }
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
