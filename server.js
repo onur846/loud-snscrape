@@ -25,7 +25,7 @@ app.get('/strategy/:handle', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // Advanced page setup with multiple protections
+    // Advanced page setup
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
@@ -44,70 +44,65 @@ app.get('/strategy/:handle', async (req, res) => {
       }
     });
 
-    // Enhanced navigation with multiple strategies
+    // Enhanced navigation
     await page.goto(`https://x.com/${req.params.handle}`, {
       waitUntil: ['networkidle0', 'domcontentloaded'],
-      timeout: 180000 // Increased timeout to 3 minutes
+      timeout: 180000
     });
 
-    // Advanced scroll and load strategy with multiple techniques
-    await page.evaluate(async () => {
-      await new Promise((resolve) => {
-        let totalHeight = 0;
-        const distance = 1000;
-        const maxScrolls = 5; // Limit scrolls to prevent infinite scrolling
-        let scrollCount = 0;
+    // Advanced dynamic scrolling to load more content
+    const extractTweetLinks = async () => {
+      return await page.evaluate(() => {
+        // Scroll to bottom of the page
+        window.scrollTo(0, document.body.scrollHeight);
 
-        const scrollInterval = setInterval(() => {
-          window.scrollBy(0, distance);
-          totalHeight += distance;
-          scrollCount++;
+        const links = Array.from(document.querySelectorAll('article a[href*="/status/"]'));
+        const uniqueLinks = new Set();
 
-          // Check if we've reached bottom or max scrolls
-          if (
-            window.innerHeight + window.scrollY >= document.body.offsetHeight || 
-            scrollCount >= maxScrolls
-          ) {
-            clearInterval(scrollInterval);
-            resolve();
-          }
-        }, 1000); // Slightly slower scroll to allow content to load
+        return links
+          .map(link => link.href)
+          .filter(href => {
+            const statusMatch = href.match(/\/status\/(\d+)/);
+            if (!statusMatch) return false;
+            
+            const fullLink = `https://x.com${statusMatch[0]}`;
+            if (uniqueLinks.has(fullLink)) return false;
+            
+            uniqueLinks.add(fullLink);
+            return true;
+          })
+          .slice(0, 50); // Increased link extraction limit
       });
-    });
+    };
 
-    // Wait for tweets with multiple fallback strategies
-    await page.waitForFunction(() => {
-      const tweets = document.querySelectorAll('article a[href*="/status/"]');
-      return tweets.length > 5; // Lowered threshold for more flexibility
-    }, { 
-      timeout: 120000,
-      polling: 'mutation' // More responsive checking
-    });
+    // Multiple scroll and load strategy
+    let tweetLinks = [];
+    const maxAttempts = 10;
+    let attempts = 0;
 
-    // Enhanced link extraction with robust filtering
-    const tweetLinks = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('article a[href*="/status/"]'));
-      const uniqueLinks = new Set();
+    while (tweetLinks.length < 30 && attempts < maxAttempts) {
+      // Scroll down dynamically
+      await page.evaluate(() => {
+        window.scrollBy(0, window.innerHeight * 2);
+      });
 
-      return links
-        .map(link => link.href)
-        .filter(href => {
-          const statusMatch = href.match(/\/status\/(\d+)/);
-          if (!statusMatch) return false;
-          
-          const fullLink = `https://x.com${statusMatch[0]}`;
-          if (uniqueLinks.has(fullLink)) return false;
-          
-          uniqueLinks.add(fullLink);
-          return true;
-        })
-        .slice(0, 30); // Limit to 30 links
-    });
+      // Wait for content to load
+      await page.waitForTimeout(2000);
 
-    console.log(`Extracted ${tweetLinks.length} unique tweet links`);
-    
-    // Replace waitForTimeout with a Promise-based delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+      // Extract links
+      const currentLinks = await extractTweetLinks();
+      
+      // Merge and deduplicate links
+      tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
+
+      attempts++;
+      console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
+    }
+
+    // Trim to exactly 30 links if possible
+    tweetLinks = tweetLinks.slice(0, 30);
+
+    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
 
     res.json(tweetLinks);
 
