@@ -50,13 +50,13 @@ app.get('/strategy/:handle', async (req, res) => {
       // Modal didn’t appear – that's fine
     }
 
-    // Scroll 7 times to load enough tweets
-    for (let i = 0; i < 7; i++) {
+    // ✅ Scroll 15 times to load more tweets
+    for (let i = 0; i < 15; i++) {
       await page.evaluate(() => window.scrollBy(0, window.innerHeight));
       await new Promise(resolve => setTimeout(resolve, 2500));
     }
 
-    // Extract unique tweet links (no /photo, /analytics)
+    // ✅ Extract only clean unique tweet links
     const tweetLinks = await page.$$eval('article a[href*="/status/"]', (links) => {
       const seen = new Set();
       return links
