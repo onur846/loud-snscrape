@@ -8,6 +8,9 @@ puppeteer.use(StealthPlugin());
 const app = express();
 app.use(cors());
 
+// Utility function for delay
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
   try {
@@ -86,8 +89,8 @@ app.get('/strategy/:handle', async (req, res) => {
         window.scrollBy(0, window.innerHeight * 2);
       });
 
-      // Wait for content to load
-      await page.waitForTimeout(2000);
+      // Replace waitForTimeout with delay function
+      await delay(2000);
 
       // Extract links
       const currentLinks = await extractTweetLinks();
