@@ -106,8 +106,8 @@ app.get('/strategy/:handle', async (req, res) => {
 
     console.log(`Extracted ${tweetLinks.length} unique tweet links`);
     
-    // Add a small buffer before closing
-    await page.waitForTimeout(2000);
+    // Replace waitForTimeout with a Promise-based delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     res.json(tweetLinks);
 
@@ -116,7 +116,8 @@ app.get('/strategy/:handle', async (req, res) => {
     res.status(500).json({ 
       error: 'Scraping Failed',
       message: err.toString(),
-      details: err.message
+      details: err.message,
+      stack: err.stack
     });
   } finally {
     if (browser) await browser.close();
