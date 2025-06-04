@@ -8,11 +8,11 @@ puppeteer.use(StealthPlugin());
 const app = express();
 app.use(cors());
 
+// Utility function for delay
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
-
   try {
     browser = await puppeteer.launch({
       headless: 'new',
@@ -21,26 +21,25 @@ app.get('/strategy/:handle', async (req, res) => {
         '--disable-setuid-sandbox',
         '--disable-gpu',
         '--disable-dev-shm-usage',
-        '--no-first-run',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-sync'
+        '--disable-features=IsolateOrigins,site-per-process'
       ],
       defaultViewport: { width: 1920, height: 1080 }
     });
 
     const page = await browser.newPage();
 
+    // Advanced page setup
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
     );
 
+    // Disable unnecessary resources
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       const resourceType = request.resourceType();
       const blockedResources = ['image', 'stylesheet', 'font'];
+      
       if (blockedResources.includes(resourceType)) {
         request.abort();
       } else {
@@ -48,84 +47,71 @@ app.get('/strategy/:handle', async (req, res) => {
       }
     });
 
+    // Enhanced navigation
     await page.goto(`https://x.com/${req.params.handle}`, {
-      waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
+      waitUntil: ['networkidle0', 'domcontentloaded'],
       timeout: 180000
     });
 
-    const extractRecentTweetLinks = async (handle) => {
-      return await page.evaluate((handle) => {
-        const tweets = Array.from(document.querySelectorAll('article'));
-        const links = new Set();
+    // Advanced dynamic scrolling to load more content
+    const extractTweetLinks = async () => {
+      return await page.evaluate(() => {
+        // Scroll to bottom of the page
+        window.scrollTo(0, document.body.scrollHeight);
 
-        for (const tweet of tweets) {
-          const timeEl = tweet.querySelector('time');
-          if (!timeEl) continue;
+        const links = Array.from(document.querySelectorAll('article a[href*="/status/"]'));
+        const uniqueLinks = new Set();
 
-          const timestamp = timeEl.innerText.trim();
-          const parentLink = timeEl.closest('a');
-          if (!parentLink || !parentLink.href.includes('/status/')) continue;
-
-          const match = timestamp.match(/^(\d+)([mh])$/);
-          if (!match) continue;
-
-          const [_, numStr, unit] = match;
-          const num = parseInt(numStr);
-          const isRecent =
-            (unit === 'm' && num >= 1 && num <= 59) ||
-            (unit === 'h' && num >= 1 && num <= 23);
-          if (!isRecent) continue;
-
-          // Check author handle
-          const handleNode = tweet.querySelector(`a[href*="/${handle}"]`);
-          if (!handleNode) continue;
-
-          links.add(parentLink.href);
-        }
-
-        return Array.from(links);
-      }, handle);
+        return links
+          .map(link => link.href)
+          .filter(href => {
+            const statusMatch = href.match(/\/status\/(\d+)/);
+            if (!statusMatch) return false;
+            
+            const fullLink = `https://x.com${statusMatch[0]}`;
+            if (uniqueLinks.has(fullLink)) return false;
+            
+            uniqueLinks.add(fullLink);
+            return true;
+          })
+          .slice(0, 50); // Increased link extraction limit
+      });
     };
 
+    // Multiple scroll and load strategy
     let tweetLinks = [];
-    const maxAttempts = 15;
+    const maxAttempts = 10;
     let attempts = 0;
 
     while (tweetLinks.length < 30 && attempts < maxAttempts) {
+      // Scroll down dynamically
       await page.evaluate(() => {
         window.scrollBy(0, window.innerHeight * 2);
-        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       });
 
-      await delay(Math.floor(Math.random() * 2000) + 2000);
+      // Replace waitForTimeout with delay function
+      await delay(2000);
 
-      const currentLinks = await extractRecentTweetLinks(req.params.handle);
+      // Extract links
+      const currentLinks = await extractTweetLinks();
+      
+      // Merge and deduplicate links
       tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
 
       attempts++;
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    tweetLinks = [...new Set(tweetLinks)].slice(0, 30);
+    // Trim to exactly 30 links if possible
+    tweetLinks = tweetLinks.slice(0, 30);
 
-    if (tweetLinks.length === 0) {
-      console.warn('No tweet links found. Attempting fallback...');
-
-      const fallbackLinks = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('a'))
-          .filter(a => a.href.includes('/status/'))
-          .map(a => a.href)
-          .slice(0, 30);
-      });
-
-      tweetLinks = fallbackLinks;
-    }
+    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
 
     res.json(tweetLinks);
 
   } catch (err) {
     console.error('Detailed Scraping Error:', err);
-    res.status(500).json({
+    res.status(500).json({ 
       error: 'Scraping Failed',
       message: err.toString(),
       details: err.message,
