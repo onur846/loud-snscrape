@@ -92,10 +92,10 @@ app.get('/strategy/:handle', async (req, res) => {
 
     // 🔁 Scroll and load strategy
     let tweetLinks = [];
-    const maxAttempts = 30;
+    const maxAttempts = 20;
     let attempts = 0;
 
-    while (tweetLinks.length < 50 && attempts < maxAttempts) {
+    while (tweetLinks.length < 40 && attempts < maxAttempts) {
       await page.evaluate(() => {
         window.scrollBy(0, window.innerHeight * 2);
       });
@@ -109,7 +109,7 @@ app.get('/strategy/:handle', async (req, res) => {
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    tweetLinks = tweetLinks.slice(0, 50);
+    tweetLinks = tweetLinks.slice(0, 40);
     console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
 
     res.json(tweetLinks);
