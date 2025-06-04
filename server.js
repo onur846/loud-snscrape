@@ -11,21 +11,6 @@ app.use(cors());
 // Utility function for delay
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Function to check if a tweet is from the last 24 hours
-function isWithinLast24Hours(timeString) {
-  try {
-    // Parse various time formats
-    const parsedTime = new Date(timeString);
-    const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-    
-    return parsedTime > twentyFourHoursAgo;
-  } catch (error) {
-    console.error('Time parsing error:', error);
-    return false;
-  }
-}
-
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
   try {
@@ -36,7 +21,11 @@ app.get('/strategy/:handle', async (req, res) => {
         '--disable-setuid-sandbox',
         '--disable-gpu',
         '--disable-dev-shm-usage',
-        '--disable-features=IsolateOrigins,site-per-process'
+        '--no-first-run',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-sync'
       ],
       defaultViewport: { width: 1920, height: 1080 }
     });
@@ -62,88 +51,101 @@ app.get('/strategy/:handle', async (req, res) => {
       }
     });
 
-    // Enhanced navigation with 24-hour filter
+    // Enhanced navigation with multiple wait strategies
     await page.goto(`https://x.com/${req.params.handle}`, {
-      waitUntil: ['networkidle0', 'domcontentloaded'],
+      waitUntil: ['networkidle0', 'domcontentloaded', 'load'],
       timeout: 180000
     });
 
-    // Advanced dynamic scrolling to load more content
+    // Advanced dynamic content extraction
     const extractRecentTweetLinks = async () => {
       return await page.evaluate(() => {
-        // Scroll to bottom of the page
-        window.scrollTo(0, document.body.scrollHeight);
+        // Multiple selector strategies
+        const selectors = [
+          'article a[href*="/status/"]',
+          'div[data-testid="tweet"] a[href*="/status/"]',
+          'div[role="article"] a[href*="/status/"]'
+        ];
 
-        // Select all tweet articles with timestamp
-        const tweetElements = document.querySelectorAll('article[data-testid="tweet"]');
+        // Comprehensive link extraction
+        const links = selectors.flatMap(selector => 
+          Array.from(document.querySelectorAll(selector))
+        );
+
         const uniqueLinks = new Set();
 
-        // Process each tweet
-        const recentTweets = Array.from(tweetElements).filter(tweet => {
-          // Try to find timestamp element
-          const timeElement = tweet.querySelector('time');
-          if (!timeElement) return false;
-
-          // Get datetime attribute
-          const datetime = timeElement.getAttribute('datetime');
-          if (!datetime) return false;
-
-          // Check if tweet is within last 24 hours
-          const tweetTime = new Date(datetime);
-          const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
-          
-          return tweetTime > twentyFourHoursAgo;
-        });
-
-        // Extract links from recent tweets
-        return recentTweets
-          .map(tweet => {
-            const link = tweet.querySelector('a[href*="/status/"]');
-            return link ? link.href : null;
-          })
+        // Advanced filtering
+        return links
+          .map(link => link.href)
           .filter(href => {
-            if (!href) return false;
+            // Validate tweet status link
             const statusMatch = href.match(/\/status\/(\d+)/);
             if (!statusMatch) return false;
             
             const fullLink = `https://x.com${statusMatch[0]}`;
-            if (uniqueLinks.has(fullLink)) return false;
             
+            // Ensure unique links
+            if (uniqueLinks.has(fullLink)) return false;
             uniqueLinks.add(fullLink);
-            return true;
+
+            // Optional: Additional filtering
+            return href.includes('/status/') && !href.includes('/hashtag/');
           })
-          .slice(0, 50); // Increased link extraction limit
+          .slice(0, 100); // Increased initial extraction limit
       });
     };
 
     // Multiple scroll and load strategy
     let tweetLinks = [];
-    const maxAttempts = 10;
+    const maxAttempts = 15; // Increased attempts
     let attempts = 0;
 
     while (tweetLinks.length < 30 && attempts < maxAttempts) {
-      // Scroll down dynamically
+      // Advanced scrolling with multiple techniques
       await page.evaluate(() => {
+        // Multiple scrolling methods
         window.scrollBy(0, window.innerHeight * 2);
+        
+        // Additional scroll techniques
+        window.scrollTo({
+          top: document.body.scrollHeight,
+          behavior: 'smooth'
+        });
       });
 
-      // Wait for content to load
-      await delay(2000);
+      // Varied wait times to allow content loading
+      await delay(Math.floor(Math.random() * 2000) + 2000);
 
-      // Extract recent links
+      // Extract links
       const currentLinks = await extractRecentTweetLinks();
       
       // Merge and deduplicate links
       tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
 
       attempts++;
-      console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} recent links`);
+      console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    // Trim to exactly 30 links if possible
-    tweetLinks = tweetLinks.slice(0, 30);
+    // Final processing
+    tweetLinks = [...new Set(tweetLinks)] // Final deduplication
+      .filter(link => link.includes('/status/')) // Ensure only tweet links
+      .slice(0, 30); // Trim to 30 links
 
-    console.log(`Final extraction: ${tweetLinks.length} unique recent tweet links`);
+    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
+
+    // Fallback if no links found
+    if (tweetLinks.length === 0) {
+      console.warn('No tweet links found. Attempting alternative extraction.');
+      
+      // Alternative extraction method
+      const fallbackLinks = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a'))
+          .filter(a => a.href.includes('/status/'));
+        return links.map(a => a.href).slice(0, 30);
+      });
+
+      tweetLinks = fallbackLinks;
+    }
 
     res.json(tweetLinks);
 
