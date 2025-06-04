@@ -2,13 +2,13 @@ const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cors = require('cors');
+const fs = require('fs');
 
 puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(cors());
 
-// Utility function for delay
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 app.get('/strategy/:handle', async (req, res) => {
@@ -28,18 +28,20 @@ app.get('/strategy/:handle', async (req, res) => {
 
     const page = await browser.newPage();
 
-    // Advanced page setup
+    // ✅ Load cookies from local file before navigating
+    const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
+    await page.setCookie(...cookies);
+
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
     );
 
-    // Disable unnecessary resources
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       const resourceType = request.resourceType();
       const blockedResources = ['image', 'stylesheet', 'font'];
-      
+
       if (blockedResources.includes(resourceType)) {
         request.abort();
       } else {
@@ -47,79 +49,69 @@ app.get('/strategy/:handle', async (req, res) => {
       }
     });
 
-    // Enhanced navigation
+    // ✅ Go to profile with cookies
     await page.goto(`https://x.com/${req.params.handle}`, {
       waitUntil: ['networkidle0', 'domcontentloaded'],
       timeout: 180000
     });
 
-    // Advanced dynamic scrolling to load more content
+    // ✅ Extract only tweets from last 24 hours
     const extractTweetLinks = async () => {
-     const now = Date.now();
+      const now = Date.now();
 
-    return await page.evaluate((now) => {
-     const articles = Array.from(document.querySelectorAll('article'));
-     const links = new Set();
+      return await page.evaluate((now) => {
+        const articles = Array.from(document.querySelectorAll('article'));
+        const links = new Set();
 
-    for (const article of articles) {
-      const timeEl = article.querySelector('time');
-      if (!timeEl) continue;
+        for (const article of articles) {
+          const timeEl = article.querySelector('time');
+          if (!timeEl) continue;
 
-      const datetime = timeEl.getAttribute('datetime');
-      if (!datetime) continue;
+          const datetime = timeEl.getAttribute('datetime');
+          if (!datetime) continue;
 
-      const tweetTime = new Date(datetime).getTime();
-      const diffHours = (now - tweetTime) / (1000 * 60 * 60);
+          const tweetTime = new Date(datetime).getTime();
+          const diffHours = (now - tweetTime) / (1000 * 60 * 60);
+          if (diffHours > 24) continue;
 
-      if (diffHours > 24) continue; // skip old tweets
+          const anchor = timeEl.closest('a[href*="/status/"]');
+          if (!anchor) continue;
 
-      const anchor = timeEl.closest('a[href*="/status/"]');
-      if (!anchor) continue;
+          const href = anchor.href;
+          links.add(href);
+        }
 
-      const href = anchor.href;
-      if (!links.has(href)) {
-        links.add(href);
-      }
-    }
+        return Array.from(links);
+      }, now);
+    };
 
-    return Array.from(links);
-  }, now);
-};
-
-    // Multiple scroll and load strategy
+    // ⏬ Scroll & collect strategy
     let tweetLinks = [];
     const maxAttempts = 10;
     let attempts = 0;
 
     while (tweetLinks.length < 30 && attempts < maxAttempts) {
-      // Scroll down dynamically
       await page.evaluate(() => {
         window.scrollBy(0, window.innerHeight * 2);
       });
 
-      // Replace waitForTimeout with delay function
-      await delay(5000);
+      await delay(2000);
 
-      // Extract links
       const currentLinks = await extractTweetLinks();
-      
-      // Merge and deduplicate links
       tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
 
       attempts++;
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    // Trim to exactly 30 links if possible
     tweetLinks = tweetLinks.slice(0, 30);
 
     console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
-
     res.json(tweetLinks);
 
   } catch (err) {
     console.error('Detailed Scraping Error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Scraping Failed',
       message: err.toString(),
       details: err.message,
