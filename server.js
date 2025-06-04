@@ -53,34 +53,38 @@ app.get('/strategy/:handle', async (req, res) => {
       timeout: 180000
     });
 
-    // ✅ FILTER: Only tweets from last 24h posted by the user
+    // ✅ Extract tweet links posted by the handle WITHIN 24h based on <time> tag
     const extractRecentTweetLinks = async (handle) => {
       return await page.evaluate((handle) => {
         const tweets = Array.from(document.querySelectorAll('article'));
-        const validLinks = new Set();
+        const links = new Set();
 
         for (const tweet of tweets) {
-          const headerLinks = tweet.querySelectorAll('a[href*="/status/"]');
+          const timeEl = tweet.querySelector('time');
+          if (!timeEl) continue;
 
-          for (const link of headerLinks) {
-            const text = link.innerText.trim();
-            const href = link.href;
+          const timestamp = timeEl.innerText.trim();
+          const parentLink = timeEl.closest('a');
+          if (!parentLink || !parentLink.href.includes('/status/')) continue;
 
-            const match = text.match(/^(\d+)([mh])$/);
-            if (!match) continue;
+          const match = timestamp.match(/^(\d+)([mh])$/);
+          if (!match) continue;
 
-            const [_, num, unit] = match;
-            const number = parseInt(num);
-            if ((unit === 'm' && number <= 59) || (unit === 'h' && number <= 23)) {
-              const handleNode = tweet.querySelector(`a[href*="/${handle}"]`);
-              if (handleNode && href.includes('/status/')) {
-                validLinks.add(href);
-              }
-            }
-          }
+          const [_, numStr, unit] = match;
+          const num = parseInt(numStr);
+          const isRecent =
+            (unit === 'm' && num >= 1 && num <= 59) ||
+            (unit === 'h' && num >= 1 && num <= 23);
+          if (!isRecent) continue;
+
+          // Check author handle
+          const handleNode = tweet.querySelector(`a[href*="/${handle}"]`);
+          if (!handleNode) continue;
+
+          links.add(parentLink.href);
         }
 
-        return Array.from(validLinks);
+        return Array.from(links);
       }, handle);
     };
 
@@ -103,16 +107,18 @@ app.get('/strategy/:handle', async (req, res) => {
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    tweetLinks = [...new Set(tweetLinks)].slice(0, 30); // Limit to 30 links
+    tweetLinks = [...new Set(tweetLinks)].slice(0, 30);
 
     if (tweetLinks.length === 0) {
       console.warn('No tweet links found. Attempting fallback...');
+
       const fallbackLinks = await page.evaluate(() => {
         return Array.from(document.querySelectorAll('a'))
           .filter(a => a.href.includes('/status/'))
           .map(a => a.href)
           .slice(0, 30);
       });
+
       tweetLinks = fallbackLinks;
     }
 
