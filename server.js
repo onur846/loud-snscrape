@@ -12,6 +12,7 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
+
   try {
     browser = await puppeteer.launch({
       headless: 'new',
@@ -53,55 +54,35 @@ app.get('/strategy/:handle', async (req, res) => {
     });
 
     const extractRecentTweetLinks = async () => {
-  return await page.evaluate(() => {
-    const tweets = Array.from(document.querySelectorAll('article'));
+      return await page.evaluate(() => {
+        const tweets = Array.from(document.querySelectorAll('article'));
+        const validLinks = new Set();
 
-    const validLinks = new Set();
+        for (const tweet of tweets) {
+          const timeNode = tweet.querySelector('time');
+          if (!timeNode) continue;
 
-    for (const tweet of tweets) {
-      const timeNode = tweet.querySelector('time');
-      if (!timeNode) continue;
+          const timeText = timeNode.parentElement?.innerText?.trim() || '';
+          const match = timeText.match(/^(\d+)([mh])$/);
+          if (!match) continue;
 
-      const timeText = timeNode.parentElement?.innerText?.trim() || '';
-
-      // Check if it ends with 'm' (minutes) or 'h' (hours up to 23h)
-      const match = timeText.match(/^(\d+)([mh])$/);
-      if (!match) continue;
-
-      const [_, value, unit] = match;
-      const num = parseInt(value);
-      if (
-        (unit === 'm' && num >= 1 && num <= 59) ||
-        (unit === 'h' && num >= 1 && num <= 23)
-      ) {
-        const anchor = tweet.querySelector('a[href*="/status/"]');
-        if (anchor) {
-          const href = anchor.href;
-          if (!validLinks.has(href)) {
-            validLinks.add(href);
+          const [_, value, unit] = match;
+          const num = parseInt(value);
+          if (
+            (unit === 'm' && num >= 1 && num <= 59) ||
+            (unit === 'h' && num >= 1 && num <= 23)
+          ) {
+            const anchor = tweet.querySelector('a[href*="/status/"]');
+            if (anchor) {
+              const href = anchor.href;
+              if (!validLinks.has(href)) {
+                validLinks.add(href);
+              }
+            }
           }
         }
-      }
-    }
 
-    return Array.from(validLinks);
-  });
-};
-
-
-        const uniqueLinks = new Set();
-
-        return links
-          .map(link => link.href)
-          .filter(href => {
-            const statusMatch = href.match(/\/status\/(\d+)/);
-            if (!statusMatch) return false;
-            const fullLink = `https://x.com${statusMatch[0]}`;
-            if (uniqueLinks.has(fullLink)) return false;
-            uniqueLinks.add(fullLink);
-            return href.includes('/status/') && !href.includes('/hashtag/');
-          })
-          .slice(0, 50); // limit in-browser memory use
+        return Array.from(validLinks);
       });
     };
 
@@ -127,11 +108,7 @@ app.get('/strategy/:handle', async (req, res) => {
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    tweetLinks = [...new Set(tweetLinks)]
-      .filter(link => link.includes('/status/'))
-      .slice(0, 30); // ✅ final trim: max 30 tweets
-
-    console.log(`Final extraction: ${tweetLinks.length} unique tweet links`);
+    tweetLinks = [...new Set(tweetLinks)].slice(0, 30); // Max 30 links
 
     if (tweetLinks.length === 0) {
       console.warn('No tweet links found. Attempting alternative extraction.');
