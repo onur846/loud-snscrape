@@ -54,40 +54,39 @@ app.get('/strategy/:handle', async (req, res) => {
     });
 
     const extractRecentTweetLinks = async (handle) => {
-  return await page.evaluate((handle) => {
-    const tweets = Array.from(document.querySelectorAll('article'));
-    const links = new Set();
+      return await page.evaluate((handle) => {
+        const tweets = Array.from(document.querySelectorAll('article'));
+        const links = new Set();
 
-    for (const tweet of tweets) {
-      const timeAnchor = tweet.querySelector('a time');
-      if (!timeAnchor) continue;
+        for (const tweet of tweets) {
+          const timeEl = tweet.querySelector('time');
+          if (!timeEl) continue;
 
-      const parentLink = timeAnchor.closest('a');
-      const timestamp = timeAnchor.innerText.trim();
+          const timestamp = timeEl.innerText.trim();
+          const parentLink = timeEl.closest('a');
+          if (!parentLink || !parentLink.href.includes('/status/')) continue;
 
-      const match = timestamp.match(/^(\d+)([mh])$/);
-      if (!match) continue;
+          const match = timestamp.match(/^(\d+)([mh])$/);
+          if (!match) continue;
 
-      const [_, numStr, unit] = match;
-      const num = parseInt(numStr);
-      const isValidTime =
-        (unit === 'm' && num >= 1 && num <= 59) ||
-        (unit === 'h' && num >= 1 && num <= 23);
-      if (!isValidTime) continue;
+          const [_, numStr, unit] = match;
+          const num = parseInt(numStr);
+          const isRecent =
+            (unit === 'm' && num >= 1 && num <= 59) ||
+            (unit === 'h' && num >= 1 && num <= 23);
+          if (!isRecent) continue;
 
-      // Ensure the tweet belongs to the profile being scraped
-      const userHandleNode = tweet.querySelector(`a[href*="/${handle}"]`);
-      if (!userHandleNode) continue;
+          // Check author handle
+          const handleNode = tweet.querySelector(`a[href*="/${handle}"]`);
+          if (!handleNode) continue;
 
-      if (parentLink && parentLink.href.includes('/status/')) {
-        links.add(parentLink.href);
-      }
-    }
+          links.add(parentLink.href);
+        }
 
-    return Array.from(links);
-  }, handle);
-};
-    
+        return Array.from(links);
+      }, handle);
+    };
+
     let tweetLinks = [];
     const maxAttempts = 15;
     let attempts = 0;
