@@ -53,29 +53,27 @@ app.get('/strategy/:handle', async (req, res) => {
       timeout: 180000
     });
 
-    const extractRecentTweetLinks = async () => {
-      return await page.evaluate(() => {
+    // ✅ FILTER: Only tweets from last 24h posted by the user
+    const extractRecentTweetLinks = async (handle) => {
+      return await page.evaluate((handle) => {
         const tweets = Array.from(document.querySelectorAll('article'));
         const validLinks = new Set();
 
         for (const tweet of tweets) {
-          const timeNode = tweet.querySelector('time');
-          if (!timeNode) continue;
+          const headerLinks = tweet.querySelectorAll('a[href*="/status/"]');
 
-          const timeText = timeNode.parentElement?.innerText?.trim() || '';
-          const match = timeText.match(/^(\d+)([mh])$/);
-          if (!match) continue;
+          for (const link of headerLinks) {
+            const text = link.innerText.trim();
+            const href = link.href;
 
-          const [_, value, unit] = match;
-          const num = parseInt(value);
-          if (
-            (unit === 'm' && num >= 1 && num <= 59) ||
-            (unit === 'h' && num >= 1 && num <= 23)
-          ) {
-            const anchor = tweet.querySelector('a[href*="/status/"]');
-            if (anchor) {
-              const href = anchor.href;
-              if (!validLinks.has(href)) {
+            const match = text.match(/^(\d+)([mh])$/);
+            if (!match) continue;
+
+            const [_, num, unit] = match;
+            const number = parseInt(num);
+            if ((unit === 'm' && number <= 59) || (unit === 'h' && number <= 23)) {
+              const handleNode = tweet.querySelector(`a[href*="/${handle}"]`);
+              if (handleNode && href.includes('/status/')) {
                 validLinks.add(href);
               }
             }
@@ -83,7 +81,7 @@ app.get('/strategy/:handle', async (req, res) => {
         }
 
         return Array.from(validLinks);
-      });
+      }, handle);
     };
 
     let tweetLinks = [];
@@ -93,32 +91,28 @@ app.get('/strategy/:handle', async (req, res) => {
     while (tweetLinks.length < 30 && attempts < maxAttempts) {
       await page.evaluate(() => {
         window.scrollBy(0, window.innerHeight * 2);
-        window.scrollTo({
-          top: document.body.scrollHeight,
-          behavior: 'smooth'
-        });
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       });
 
       await delay(Math.floor(Math.random() * 2000) + 2000);
 
-      const currentLinks = await extractRecentTweetLinks();
+      const currentLinks = await extractRecentTweetLinks(req.params.handle);
       tweetLinks = [...new Set([...tweetLinks, ...currentLinks])];
 
       attempts++;
       console.log(`Attempt ${attempts}: Extracted ${tweetLinks.length} links`);
     }
 
-    tweetLinks = [...new Set(tweetLinks)].slice(0, 30); // Max 30 links
+    tweetLinks = [...new Set(tweetLinks)].slice(0, 30); // Limit to 30 links
 
     if (tweetLinks.length === 0) {
-      console.warn('No tweet links found. Attempting alternative extraction.');
-
+      console.warn('No tweet links found. Attempting fallback...');
       const fallbackLinks = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a'))
-          .filter(a => a.href.includes('/status/'));
-        return links.map(a => a.href).slice(0, 30);
+        return Array.from(document.querySelectorAll('a'))
+          .filter(a => a.href.includes('/status/'))
+          .map(a => a.href)
+          .slice(0, 30);
       });
-
       tweetLinks = fallbackLinks;
     }
 
