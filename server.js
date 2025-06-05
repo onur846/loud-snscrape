@@ -11,6 +11,8 @@ app.use(cors());
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+app.use('/strategies', express.static('public/data/strategies'));
+
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
   try {
