@@ -3,6 +3,8 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cors = require('cors');
 const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
 
 puppeteer.use(StealthPlugin());
 
@@ -10,8 +12,6 @@ const app = express();
 app.use(cors());
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-app.use('/strategies', express.static('public/data/strategies'));
 
 app.get('/strategy/:handle', async (req, res) => {
   let browser = null;
@@ -62,49 +62,49 @@ app.get('/strategy/:handle', async (req, res) => {
     }
 
     const extractTweetData = async () => {
-  const now = Date.now();
-  return await page.evaluate((now) => {
-    const articles = Array.from(document.querySelectorAll('article'));
-    const tweets = [];
+      const now = Date.now();
+      return await page.evaluate((now) => {
+        const articles = Array.from(document.querySelectorAll('article'));
+        const tweets = [];
 
-    for (const article of articles) {
-      const timeEl = article.querySelector('time');
-      if (!timeEl) continue;
+        for (const article of articles) {
+          const timeEl = article.querySelector('time');
+          if (!timeEl) continue;
 
-      const datetime = timeEl.getAttribute('datetime');
-      if (!datetime) continue;
+          const datetime = timeEl.getAttribute('datetime');
+          if (!datetime) continue;
 
-      const tweetTime = new Date(datetime).getTime();
-      const diffHours = (now - tweetTime) / (1000 * 60 * 60);
-      if (diffHours > 24) continue;
+          const tweetTime = new Date(datetime).getTime();
+          const diffHours = (now - tweetTime) / (1000 * 60 * 60);
+          if (diffHours > 24) continue;
 
-      const linkEl = timeEl.closest('a[href*="/status/"]');
-      if (!linkEl) continue;
+          const linkEl = timeEl.closest('a[href*="/status/"]');
+          if (!linkEl) continue;
 
-      const tweetText = article.innerText.toLowerCase();
+          const tweetText = article.innerText.toLowerCase();
 
-      const hashtags = Array.from(article.querySelectorAll('a[href*="/hashtag/"]'))
-        .map(a => a.innerText.trim())
-        .filter(t => t.startsWith('#'));
+          const hashtags = Array.from(article.querySelectorAll('a[href*="/hashtag/"]'))
+            .map(a => a.innerText.trim())
+            .filter(t => t.startsWith('#'));
 
-      const mentions = Array.from(article.querySelectorAll('a[href^="/"]'))
-        .map(a => a.innerText.trim())
-        .filter(m => m.startsWith('@'));
+          const mentions = Array.from(article.querySelectorAll('a[href^="/"]'))
+            .map(a => a.innerText.trim())
+            .filter(m => m.startsWith('@'));
 
-      tweets.push({
-        link: linkEl.href,
-        timestamp: datetime,
-        containsLoudio: tweetText.includes('loudio'),
-        hashtags,
-        mentions
-      });
-    }
+          tweets.push({
+            link: linkEl.href,
+            timestamp: datetime,
+            containsLoudio: tweetText.includes('loudio'),
+            hashtags,
+            mentions
+          });
+        }
 
-    return tweets;
-  }, now);
-};
+        return tweets;
+      }, now);
+    };
 
-    // Scroll and load more tweets
+    // Scroll and collect tweets
     let allTweets = [];
     const maxAttempts = 20;
     let attempts = 0;
@@ -128,14 +128,41 @@ app.get('/strategy/:handle', async (req, res) => {
 
     const finalTweets = allTweets.slice(0, 40);
     console.log(`Final extracted tweets: ${finalTweets.length}`);
-     const path = require('path');
-     const savePath = path.join(__dirname, 'public', 'data', 'strategies');
-     if (!fs.existsSync(savePath)) {
-    fs.mkdirSync(savePath, { recursive: true });
-     }
-    const saveFile = path.join(savePath, `${req.params.handle}.json`);
-     fs.writeFileSync(saveFile, JSON.stringify(finalTweets, null, 2));
-     console.log(` Saved strategy JSON for ${req.params.handle}`);
+
+    // Upload to GitHub
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const repoOwner = 'onur846';
+    const repoName = 'loud_analyzer';
+    const branch = 'main';
+    const filePath = `public/data/strategies/${req.params.handle}.json`;
+    const apiUrl = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${filePath}`;
+
+    // Check if file exists to get its SHA
+    let sha = null;
+    try {
+      const existingFile = await axios.get(apiUrl, {
+        headers: { Authorization: `token ${GITHUB_TOKEN}` }
+      });
+      sha = existingFile.data.sha;
+    } catch (e) {
+      console.log('🆕 Creating new file:', filePath);
+    }
+
+    const content = Buffer.from(JSON.stringify(finalTweets, null, 2)).toString('base64');
+
+    await axios.put(apiUrl, {
+      message: `Update strategy data for ${req.params.handle}`,
+      content,
+      sha,
+      branch
+    }, {
+      headers: {
+        Authorization: `token ${GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+
+    console.log(`✅ Successfully committed JSON for ${req.params.handle}`);
     res.json(finalTweets);
 
   } catch (err) {
