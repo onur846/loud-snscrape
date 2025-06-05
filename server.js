@@ -126,6 +126,14 @@ app.get('/strategy/:handle', async (req, res) => {
 
     const finalTweets = allTweets.slice(0, 40);
     console.log(`Final extracted tweets: ${finalTweets.length}`);
+     const path = require('path');
+     const savePath = path.join(__dirname, 'public', 'data', 'strategies');
+     if (!fs.existsSync(savePath)) {
+    fs.mkdirSync(savePath, { recursive: true });
+     }
+    const saveFile = path.join(savePath, `${req.params.handle}.json`);
+     fs.writeFileSync(saveFile, JSON.stringify(finalTweets, null, 2));
+     console.log(` Saved strategy JSON for ${req.params.handle}`);
     res.json(finalTweets);
 
   } catch (err) {
